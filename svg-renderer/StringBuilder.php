@@ -1,6 +1,7 @@
 <?php
 /*
  * ShareMap PHP library https://github.com/ShareMap/ShareMap-php
+ * Author: jkan997
  * Developed under ShareMap project http://sharemap.org/
  * Copyright (c) 2014, ShareMap Project, All rights reserved.
  * 
@@ -17,6 +18,7 @@
  * You should have received a copy of the GNU Lesser General Public
  * License along with this library.
  */
+namespace ShareMapPhp;
 
 class StringBuilder {
 

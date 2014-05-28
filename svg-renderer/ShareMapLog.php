@@ -17,23 +17,24 @@
  * You should have received a copy of the GNU Lesser General Public
  * License along with this library.
  */
+namespace ShareMapPhp;
 
-class Log {
+class ShareMapLog {
 
     public static $logToConsole = false;
 
     public static function info($msg) {
-        if (Log::$logToConsole === true) {
+        if (ShareMapLog::$logToConsole === true) {
             echo $msg . "\n";
         }
     }
     
     public static function logVar($key,$val) {
-       Log::info($key . " = ".$val);
+       ShareMapLog::info($key . " = ".$val);
     }
 
     public static function error($msg) {
-        Log::info("ERROR " . $msg);
+        ShareMapLog::info("ERROR " . $msg);
     }
 
 }
