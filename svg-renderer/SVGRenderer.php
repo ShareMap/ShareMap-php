@@ -19,12 +19,15 @@
  * License along with this library.
  */
 
+namespace ShareMapPhp;
+
+use ShareMapPhp\ShareMapLog as Log;
+
 require_once("Point.php");
 require_once("Bounds.php");
 require_once("StringBuilder.php");
 require_once("ImgDownloader.php");
-require_once("Log.php");
-
+require_once("ShareMapLog.php");
 
 class SVGRenderer {
 
@@ -38,11 +41,49 @@ class SVGRenderer {
     private $resultScale = 1;
     private $embedImg = false;
     private $markerDataUrl = null;
-    public $markerUrl = "http://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.2/images//marker-icon.png";
-    public $tileUrlPattern = "http://{s}.tile.opencyclemap.org/cycle/{z}/{x}/{y}.png";
+    private $log = null;
+
+    /*
+     * Public configuration variables
+     * 
+     * TODO: Should be moved to separate class
+     */
+    // Height of marker
+    public $markerImgHeight = 41;
+    // Width of marker
+    public $markerImgWidth = 25;
+    // Anchor X of Marker
+    public $markerImgAnchorX;
+    // Anchor Y of Marker
+    public $markerImgAnchorY;
+    // URL or marker image
+    public $markerImgUrl;
+    // URL pattern of tile server (format same like for Leaflet
+    public $tileUrlPattern;
+    // Default line style
+    public $defaultLineStyle = [];
+    // Maximum viewport width (result may be smaller because of keeping proportions)
+    public $viewportWidth = 600;
+    // Maximum viewport height (result may be smaller because of keeping proportions)
+    public $viewportHeight = 600;
+    
 
     public function __construct() {
         $this->imgDownloader = ImgDownloader::getInstance();
+        $this->markerImgUrl = "http://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.2/images//marker-icon.png";
+        $this->markerImgHeight = 41;
+        $this->markerImgWidth = 25;
+        $this->markerImgAnchorX = $this->markerImgWidth / 2;
+        $this->markerImgAnchorY = $this->markerImgHeight;
+        $this->tileUrlPattern = "http://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
+        $dls = [];
+        $dls["stroke-linejoin"] = "round";
+        $dls["stroke-linecap"] = "round";
+        $dls["stroke"] = "#0033ff";
+        $dls["stroke-opacity"] = "0.5";
+        $dls["stroke-width"] = "5";
+        $dls["fill"] = "none";
+        $this->defaultLineStyle = $dls;
     }
 
     protected function projectMercator($lam, $phi, $out) {
@@ -83,76 +124,7 @@ class SVGRenderer {
         return $res;
     }
 
-    public function renderSVG($json) {
-        $this->bounds = new Bounds();
-        $this->detectBounds = true;
-        $this->renderComponent($json);
-        $this->bounds->extend(0.1);
-        $this->detectBounds = false;
-        $bounds = $this->bounds;
-        $point1 = $this->projectPoint($bounds->minLat, $bounds->minLng);
-        $point2 = $this->projectPoint($bounds->maxLat, $bounds->maxLng);
-        $minX = min($point1->x, $point2->x);
-        $minY = min($point1->y, $point2->y);
-        $maxX = max($point1->x, $point2->x);
-        $maxY = max($point1->y, $point2->y);
-        $this->minX = $minX;
-        $this->minY = $minY;
-        $this->maxX = $maxX;
-        $this->maxY = $maxY;
-
-        $this->viewportWidth = 600;
-        $this->viewportHeight = 600;
-        $scaleX = 600 / ($maxX - $minX);
-        $scaleY = 600 / ($maxY - $minY);
-        $this->resultScale = min($scaleX, $scaleY);
-        $this->viewportHeight = ($maxY - $minY) * $this->resultScale;
-        $this->viewportWidth = ($maxX - $minX) * $this->resultScale;
-        $this->resultWidth = $this->viewportWidth;
-        $this->resultHeight = $this->viewportHeight;
-        $this->xOffset = $minX;
-        $this->yOffset = $minY;
-
-        Log::logVar("xOffset", $this->xOffset);
-        Log::logVar("yOffset", $this->yOffset);
-
-        Log::logVar("resultScale", $this->resultScale);
-        Log::logVar("resultWidth", $this->resultWidth);
-        Log::logVar("resultHeight", $this->resultHeight);
-        $this->contentScale = 1;
-        $this->realHeight = $this->resultHeight * $this->contentScale;
-        $this->realWidth = $this->resultWidth * $this->contentScale;
-        $this->output = new StringBuilder();
-        $output = $this->output;
-        $output->append('<svg');
-        $output->append('xmlns:svg="http://www.w3.org/2000/svg" ');
-        $output->append('xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" ');
-        $output->append('xmlns:rdfs="http://www.w3.org/2000/01/rdf-schema#" ');
-        $output->append('xmlns:dc="http://purl.org/dc/elements/1.1" ');
-        $output->append('xmlns:xlink="http://www.w3.org/1999/xlink" ');
-        $output->append('xmlns="http://www.w3.org/2000/svg" ');
-        $output->append('width="%fpx" height="%fpx" viewBox="0 0 %f %f">', [$this->realWidth, $this->realHeight, $this->realWidth, $this->realHeight]);
-        $output->append('<g id="background" ');
-        if ($this->contentScale != 1) {
-            $output->append(' transform="scale(%f)" ', [$this->contentScale]);
-        }
-        $output->append('>');
-        //$output->append('<rect x="0" y="0" width="' . $this->resultWidth . '" height="' . $this->resultHeight . '" style="fill:blue;"/>');
-        $bgStr = $this->renderBackground();
-        $output->append($bgStr);
-        $output->append('</g>');
-        $output->append('<g id="shapes" ');
-        if ($this->contentScale != 1) {
-            $output->append(' transform="scale(%f)" ', [$this->contentScale]);
-        }
-        $output->append('>');
-        $this->renderComponent($json);
-        $output->append('</g>');
-        $output->append('</svg>');
-        return $output->toString();
-    }
-
-    public function renderBackground() {
+    private function renderBackground() {
         $res = new StringBuilder();
         $minX = $this->minX;
         $minY = $this->minY;
@@ -198,8 +170,8 @@ class SVGRenderer {
         $maxTile = pow(2, $maxZoom) - 1;
         $filterStr = "";
         $res->append('<g %s transform=" scale(%f) translate(%f,%f)" style="opacity:%f">', [$filterStr, $bgScale, (0 - $tileOffsetX), (0 - $tileOffsetY), 1]);
-        for ($tileX = $upperTileX; $tileX < $upperTileX + $xTilesCount; $tileX++) {
-            for ($tileY = $upperTileY; $tileY < $upperTileY + $yTilesCount; $tileY++) {
+        for ($tileY = $upperTileY; $tileY < $upperTileY + $yTilesCount; $tileY++) {
+            for ($tileX = $upperTileX; $tileX < $upperTileX + $xTilesCount; $tileX++) {
                 if (($tileX >= -$maxTile) && ($tileX <= $maxTile) && ($tileY <= $maxTile)) {
                     if ($tileX < 0) {
                         $tileX = $maxTile + $tileX;
@@ -234,7 +206,7 @@ class SVGRenderer {
         return $tileUrl;
     }
 
-    public function renderComponent($json) {
+    private function renderComponent($json) {
         $type = $json["type"];
         if ((isset($type))) {
             $type = strtolower($type);
@@ -281,7 +253,7 @@ class SVGRenderer {
         //}
     }
 
-    public function renderFeatureCollection($json) {
+    private function renderFeatureCollection($json) {
         $features = $json["features"];
         if (isset($features)) {
             foreach ($features as $key => $feature) {
@@ -290,14 +262,14 @@ class SVGRenderer {
         }
     }
 
-    public function renderFeature($json) {
+    private function renderFeature($json) {
         $geometry = $json["geometry"];
         if (isset($geometry)) {
             $this->renderComponent($geometry);
         }
     }
 
-    public function renderPoint($json) {
+    private function renderPoint($json) {
         $coordinates = $json["coordinates"];
         $lng = $coordinates[0];
         $lat = $coordinates[1];
@@ -305,23 +277,19 @@ class SVGRenderer {
         $pointId = "point_" . ($this->idGenerator++);
         $output = $this->output;
         $output->append('<g id="%s" transform="translate(%f,%f)">', [ $pointId, $point->x, $point->y]);
-        $imgHeight = 41;
-        $imgWidth = 25;
-        $anchorX = $imgWidth / 2;
-        $anchorY = $imgHeight;
-        $markerUrl = $this->markerUrl;
         if ($this->embedImg === true) {
             if (!isset($this->markerDataUrl)) {
                 $this->markerDataUrl = $this->imgDownloader->getUrlAsDataUrl($markerUrl);
             }
             $markerUrl = $this->markerDataUrl;
         }
-        $output->append('<image x="%f" y="%f" width="%f" height="%f" xlink:href="%s"/>', [(0 - $anchorX), (0 - $anchorY), $imgWidth, $imgHeight, $markerUrl]);
+        $output->append('<image x="%f" y="%f" width="%f" height="%f" xlink:href="%s"/>', [(0 - $this->markerImgAnchorX), (0 - $this->markerImgAnchorY), $this->markerImgWidth, $this->markerImgHeight, $this->markerImgUrl]
+        );
         /* $output->append('<circle r="6" stroke="black" stroke-width="1" fill="red" />'); */
         $output->append('</g>');
     }
 
-    public function renderLine($json, $polygon) {
+    private function renderLine($json, $polygon) {
         if ($polygon === true) {
             $coordsArr = $json["coordinates"][0];
         } else {
@@ -349,14 +317,83 @@ class SVGRenderer {
             }
         }
         $output = $this->output;
-        $styleAttrs = '';
-        $styleAttrs .='stroke-linejoin="round" ';
-        $styleAttrs .='stroke-linecap="round" ';
-        $styleAttrs .='stroke="#0033ff" ';
-        $styleAttrs .='stroke-opacity="0.5" ';
-        $styleAttrs .='stroke-width="5" ';
-        $styleAttrs .='fill="none" ';
-        $output->append('<path %s  d="%s" />', [$styleAttrs, $data]);
+        $styleAttrs = "";
+        foreach ($this->defaultLineStyle as $key => $val) {
+            $styleAttrs .= $key . '="' . $val . '" ';
+        }
+        $output->append('<path %s d="%s" />', [$styleAttrs, $data]);
+    }
+
+    /**
+     * Creates SVG rendition from GeoJSON file
+     * Mercator projection is used
+     * @param $json GeoJSON object
+     * @return string SVG XML string
+     */
+    public function renderSVG($json) {
+        $this->bounds = new Bounds();
+        $this->detectBounds = true;
+        $this->renderComponent($json);
+        $this->bounds->extend(0.1);
+        $this->detectBounds = false;
+        $bounds = $this->bounds;
+        $point1 = $this->projectPoint($bounds->minLat, $bounds->minLng);
+        $point2 = $this->projectPoint($bounds->maxLat, $bounds->maxLng);
+        $minX = min($point1->x, $point2->x);
+        $minY = min($point1->y, $point2->y);
+        $maxX = max($point1->x, $point2->x);
+        $maxY = max($point1->y, $point2->y);
+        $this->minX = $minX;
+        $this->minY = $minY;
+        $this->maxX = $maxX;
+        $this->maxY = $maxY;
+        $scaleX = $this->viewportWidth / ($maxX - $minX);
+        $scaleY = $this->viewportHeight / ($maxY - $minY);
+        $this->resultScale = min($scaleX, $scaleY);
+        $this->viewportHeight = ($maxY - $minY) * $this->resultScale;
+        $this->viewportWidth = ($maxX - $minX) * $this->resultScale;
+        $this->resultWidth = $this->viewportWidth;
+        $this->resultHeight = $this->viewportHeight;
+        $this->xOffset = $minX;
+        $this->yOffset = $minY;
+
+        Log::logVar("xOffset", $this->xOffset);
+        Log::logVar("yOffset", $this->yOffset);
+
+        Log::logVar("resultScale", $this->resultScale);
+        Log::logVar("resultWidth", $this->resultWidth);
+        Log::logVar("resultHeight", $this->resultHeight);
+        $this->contentScale = 1;
+        $this->realHeight = $this->resultHeight * $this->contentScale;
+        $this->realWidth = $this->resultWidth * $this->contentScale;
+        $this->output = new StringBuilder();
+        $output = $this->output;
+        $output->append('<svg');
+        $output->append('xmlns:svg="http://www.w3.org/2000/svg" ');
+        $output->append('xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" ');
+        $output->append('xmlns:rdfs="http://www.w3.org/2000/01/rdf-schema#" ');
+        $output->append('xmlns:dc="http://purl.org/dc/elements/1.1" ');
+        $output->append('xmlns:xlink="http://www.w3.org/1999/xlink" ');
+        $output->append('xmlns="http://www.w3.org/2000/svg" ');
+        $output->append('width="%fpx" height="%fpx" viewBox="0 0 %f %f">', [$this->realWidth, $this->realHeight, $this->realWidth, $this->realHeight]);
+        $output->append('<g id="background" ');
+        if ($this->contentScale != 1) {
+            $output->append(' transform="scale(%f)" ', [$this->contentScale]);
+        }
+        $output->append('>');
+        //$output->append('<rect x="0" y="0" width="' . $this->resultWidth . '" height="' . $this->resultHeight . '" style="fill:blue;"/>');
+        $bgStr = $this->renderBackground();
+        $output->append($bgStr);
+        $output->append('</g>');
+        $output->append('<g id="shapes" ');
+        if ($this->contentScale != 1) {
+            $output->append(' transform="scale(%f)" ', [$this->contentScale]);
+        }
+        $output->append('>');
+        $this->renderComponent($json);
+        $output->append('</g>');
+        $output->append('</svg>');
+        return $output->toString();
     }
 
 }
