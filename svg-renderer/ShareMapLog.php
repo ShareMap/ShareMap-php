@@ -18,12 +18,9 @@
  * You should have received a copy of the GNU Lesser General Public
  * License along with this library.
  */
-
 namespace ShareMapPhp;
 
 class ShareMapLog {
-
-	public static $logToConsole = false;
 
 	public static function info( $msg ) {
 		if ( ShareMapLog::$logToConsole === true ) {
@@ -38,5 +35,4 @@ class ShareMapLog {
 	public static function error( $msg ) {
 		ShareMapLog::info( "ERROR " . $msg );
 	}
-
 }
